@@ -159,7 +159,6 @@
             &.color {
                 color: #bbbbbb;
             }
-
             .taskfont {
                 display: inline-block;
                 transform: scale(0.9);
@@ -244,21 +243,6 @@ body.window-portrait {
                 }
                 .advanced-time {
                     margin-left: 4px;
-                }
-            }
-
-            .visibility-text {
-                cursor: pointer;
-
-                &.color {
-                    color: #bbbbbb;
-                }
-
-                .taskfont {
-                    display: inline-block;
-                    transform: scale(0.9);
-                    font-size: 12px;
-                    margin-right: 0;
                 }
             }
         }
