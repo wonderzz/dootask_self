@@ -2,36 +2,36 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Exceptions\ApiException;
-use App\Models\AbstractModel;
-use App\Models\Deleted;
-use App\Models\File;
-use App\Models\FileContent;
-use App\Models\Project;
-use App\Models\ProjectColumn;
-use App\Models\ProjectFlow;
-use App\Models\ProjectFlowItem;
-use App\Models\ProjectInvite;
-use App\Models\ProjectLog;
-use App\Models\ProjectTask;
-use App\Models\ProjectTaskFile;
-use App\Models\ProjectTaskFlowChange;
-use App\Models\ProjectTaskUser;
-use App\Models\ProjectUser;
-use App\Models\User;
-use App\Models\WebSocketDialog;
-use App\Module\Base;
-use App\Module\BillExport;
-use App\Module\BillMultipleExport;
-use App\Module\Doo;
-use App\Module\TimeRange;
-use Carbon\Carbon;
-use Illuminate\Support\Arr;
-use Madzipper;
-use Redirect;
 use Request;
-use Response;
 use Session;
+use Redirect;
+use Response;
+use Madzipper;
+use Carbon\Carbon;
+use App\Module\Doo;
+use App\Models\File;
+use App\Models\User;
+use App\Module\Base;
+use App\Models\Deleted;
+use App\Models\Project;
+use App\Module\TimeRange;
+use App\Models\ProjectLog;
+use App\Module\BillExport;
+use App\Models\FileContent;
+use App\Models\ProjectFlow;
+use App\Models\ProjectTask;
+use App\Models\ProjectUser;
+use Illuminate\Support\Arr;
+use App\Models\AbstractModel;
+use App\Models\ProjectColumn;
+use App\Models\ProjectInvite;
+use App\Models\ProjectFlowItem;
+use App\Models\ProjectTaskFile;
+use App\Models\ProjectTaskUser;
+use App\Models\WebSocketDialog;
+use App\Exceptions\ApiException;
+use App\Module\BillMultipleExport;
+use App\Models\ProjectTaskFlowChange;
 
 /**
  * @apiDefine project
@@ -909,12 +909,18 @@ class ProjectController extends AbstractController
         $sorts = Request::input('sorts');
         $keys = is_array($keys) ? $keys : [];
         $sorts = is_array($sorts) ? $sorts : [];
-
-        // 任务可见性
-        $visibility_task_ids = ProjectTask::getVisibleUserids($userid, $project_id);
-
+        
         $builder = ProjectTask::with(['taskUser', 'taskTag']);
-        $builder->whereIn("project_tasks.id", $visibility_task_ids);
+        // 任务可见性
+        $builder->leftJoin('project_users', function ($q) {
+            $q->on('project_tasks.project_id', '=', 'project_users.project_id')->where('project_users.owner', 1);
+        });
+        $builder->leftJoin('project_task_users as task_users', 'project_tasks.id', '=', 'task_users.task_id');
+        $builder->where(function ($q) use ($userid) {
+            $q->where("project_tasks.is_all_visible", 1);
+            $q->orWhere("project_users.userid", $userid);
+            $q->orWhere("task_users.userid", $userid);
+        });
         //
         if ($keys['name']) {
             if (Base::isNumber($keys['name'])) {
@@ -1355,7 +1361,7 @@ class ProjectController extends AbstractController
         $isArchived = str_replace(['all', 'yes', 'no'], [null, false, true], $archived);
         $task = ProjectTask::userTask($task_id, $isArchived, true, false, ['taskUser', 'taskTag']);
         // 项目可见性
-        $project_userid = Project::whereId($task->project_id)->value('userid');     // 项目负责人
+        $project_userid = ProjectUser::whereProjectId($task->project_id)->whereOwner(1)->value('userid');     // 项目负责人
         if ($task->is_all_visible != 1 && $user->userid != $project_userid) {
             $visibleUserids = ProjectTaskUser::whereTaskId($task_id)->pluck('userid')->toArray();       // 是否任务负责人、协助人、可见人
             $subVisibleUserids = ProjectTaskUser::whereTaskPid($task_id)->pluck('userid')->toArray();   // 是否子任务负责人、协助人
@@ -1623,7 +1629,7 @@ class ProjectController extends AbstractController
         if ($data['is_all_visible'] == 1) {
             $data['is_visible'] = 1;
         } else {
-            $projectOwner = Project::whereId($data['project_id'])->pluck('userid')->toArray();  // 项目负责人
+            $projectOwner = ProjectUser::whereProjectId($task->project_id)->whereOwner(1)->pluck('userid')->toArray();  // 项目负责人
             $taskOwnerAndAssists = ProjectTaskUser::select(['userid', 'owner'])->whereTaskId($data['id'])->pluck('userid')->toArray();
             $visibleIds = array_merge($projectOwner, $taskOwnerAndAssists);
             $data['is_visible'] = in_array($user->userid, $visibleIds) ? 1 : 0;
@@ -1671,9 +1677,8 @@ class ProjectController extends AbstractController
             'is_all_visible' => 2,
         ]);
         $data = ProjectTask::oneTask($task->id);
-        $projectUserid = Project::whereId($data->project_id)->value('userid');
         $pushUserIds = ProjectTaskUser::whereTaskId($task->id)->pluck('userid')->toArray();
-        $pushUserIds[] = $projectUserid;
+        $pushUserIds[] = ProjectUser::whereProjectId($this->project_id)->whereOwner(1)->value('userid');  
         foreach ($pushUserIds as $userId) {
             $task->pushMsg('add', $data, $userId);
         }
